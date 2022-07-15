@@ -32,11 +32,11 @@ conda activate ocmr_bench
 #### Test PATENT dataset
 
 1. Path to PATENT dataset
-"""
+```
 |----Data/
       |----Patent/
 |----Evaluator_patent.py
-"""
+```
 2. run testing
 ```python
 python Evaluator_own.py
