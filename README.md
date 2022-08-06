@@ -15,7 +15,7 @@ docker run --rm -ti -p 1234:5632 limingisafish/ocmr:v3
 ```
 3.  Translate molecular image to SMILES.
 ```bash
-python inference.py
+python test.py
 
 ## {'imago': 'N#Cc1ccccc1C#N', 'molvec': 'N#CC1=C(C#N)C=CC=C1', 'osra': 'N#Cc1ccccc1C#N', 'ocmr': 'N#CC1=C(C#N)C=CC=C1'}
 ```
