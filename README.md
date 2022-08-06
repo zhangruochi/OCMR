@@ -39,7 +39,7 @@ conda activate ocmr_bench
 ```
 2. run testing
 ```python
-python Evaluator_own.py
+python Evaluator_patent.py
 ```
 3 the result will be saved in `Patent_res.csv`.
 ```
@@ -63,7 +63,7 @@ Imago acc：143/520
 ```
 2. run testing
 ```python
-python Evaluator_public.py
+python Evaluator_benchmarks.py
 ```
 1. the result will be saved in `all_result_public.xlsx` and `public_res.csv`.
    
