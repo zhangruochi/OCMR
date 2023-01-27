@@ -3,13 +3,14 @@ import requests
 import numpy as np
 import pandas as pd
 import Levenshtein as le
+import rdkit.Chem.MolStandardize
 
 from rdkit import Chem
+from rdkit import DataStructs
 from multiprocessing import Pool
 from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.DataStructs import TanimotoSimilarity
 from rdkit.Chem import AllChem, rdMolDescriptors
-
 
 def calc_fingerprints(mols, fp_type="mg", radius=2, bit_size=2048):
     if type(mols) == Chem.rdchem.Mol:
@@ -56,31 +57,57 @@ def calc_matrix(fps1, fps2):
     return simi_matrix
 
 
+# def calc_fp_similarity(x, name):
+#     """
+#     fp_types: one or multi of mg(MorganFingerprint)、rdk(RDKFingerprint)、tt(TopologicalTorsionFingerprint)、ap(AtomPairFingerprint)
+#     """
+#     fp_types = ('mg', 'ap')
+#     is_smi = True
+#     scaffold = False
+#     ref_m, prb_m = x["GD"], x[name]
+#     if is_smi:
+#         ref_m = Chem.MolFromSmiles(ref_m)
+#         prb_m = Chem.MolFromSmiles(prb_m)
+#     if ref_m is None or prb_m is None:
+#         return 0
+#     if scaffold:
+#         ref_m = MurckoScaffold.GetScaffoldForMol(ref_m)
+#         prb_m = MurckoScaffold.GetScaffoldForMol(ref_m)
+#     simi_values = []
+#     for fp_type in fp_types:
+#         fps = calc_fingerprints([ref_m, prb_m],
+#                                 fp_type=fp_type,
+#                                 radius=2,
+#                                 bit_size=2048)
+#         simi_values.append(calc_matrix(fps, fps)[0, 1])
+#     return np.mean(simi_values)
+
 def calc_fp_similarity(x, name):
     """
-    fp_types: one or multi of mg(MorganFingerprint)、rdk(RDKFingerprint)、tt(TopologicalTorsionFingerprint)、ap(AtomPairFingerprint)
+    refrence from ABCNet : https://github.com/zhang-xuan1314/ABC-Net/blob/main/src/cal_acc.py
     """
     fp_types = ('mg', 'ap')
     is_smi = True
     scaffold = False
     ref_m, prb_m = x["GD"], x[name]
     if is_smi:
-        ref_m = Chem.MolFromSmiles(ref_m)
-        prb_m = Chem.MolFromSmiles(prb_m)
-    if ref_m is None or prb_m is None:
+        ref_m_test = Chem.MolFromSmiles(ref_m)
+        prb_m_test = Chem.MolFromSmiles(prb_m)
+    if ref_m_test is None or prb_m_test is None:
         return 0
-    if scaffold:
-        ref_m = MurckoScaffold.GetScaffoldForMol(ref_m)
-        prb_m = MurckoScaffold.GetScaffoldForMol(ref_m)
-    simi_values = []
-    for fp_type in fp_types:
-        fps = calc_fingerprints([ref_m, prb_m],
-                                fp_type=fp_type,
-                                radius=2,
-                                bit_size=2048)
-        simi_values.append(calc_matrix(fps, fps)[0, 1])
-    return np.mean(simi_values)
 
+    try:
+        smiles = rdkit.Chem.MolStandardize.canonicalize_tautomer_smiles(ref_m)
+        smiles_pred = rdkit.Chem.MolStandardize.canonicalize_tautomer_smiles(prb_m)
+    except:
+        return 0
+    mol1 = Chem.MolFromSmiles(smiles)
+    mol2 = Chem.MolFromSmiles(smiles_pred)
+
+    morganfps1 = AllChem.GetMorganFingerprint(mol1, 3)
+    morganfps2 = AllChem.GetMorganFingerprint(mol2, 3)
+    morgan_tani = DataStructs.DiceSimilarity(morganfps1, morganfps2)
+    return morgan_tani
 
 def inference(file_path):
     api = 'http://localhost:1234/infer'
@@ -100,19 +127,19 @@ def inference(file_path):
 
 
 def norm_func(smile_str):
-    try:
-        smile = Chem.MolToSmiles(Chem.MolFromSmiles(smile_str),
-                                 isomericSmiles=True,
-                                 canonical=True).replace("\\",
-                                                         "").replace("/", "")
-    except:
-        smile = ""
+    # try:
+    #     smile = Chem.MolToSmiles(Chem.MolFromSmiles(smile_str),
+    #                              isomericSmiles=True,
+    #                              canonical=True).replace("\\",
+    #                                                      "").replace("/", "")
+    # except:
+    #     smile = ""
 
-    if "." in smile:
-        smiles = smile.split(".")
-        smile = smiles[np.argmax([len(_) for _ in smiles])]
-    return smile
-
+    # if "." in smile:
+    #     smiles = smile.split(".")
+    #     smile = smiles[np.argmax([len(_) for _ in smiles])]
+    # return smile
+    return smile_str
 
 def edit_distance(x, name):
     sm1 = norm_func(x["GD"])
@@ -197,26 +224,28 @@ if __name__ == "__main__":
             dic["Imago"].append("")
             dic["Is_Imago_true"].append(0)
 
-    df = pd.DataFrame(dic)
     df = df.fillna("c")
+    from tqdm import tqdm
+    tqdm.pandas(desc='apply')
+ 
     # similarity
-    df["OCMR_TanimotoSimilarity"] = df.apply(calc_fp_similarity,
+    df["OCMR_TanimotoSimilarity"] = df.progress_apply(calc_fp_similarity,
                                              name="OCMR",
                                              axis=1)
-    df["MolVec_TanimotoSimilarity"] = df.apply(calc_fp_similarity,
+    df["MolVec_TanimotoSimilarity"] = df.progress_apply(calc_fp_similarity,
                                                name="MolVec",
                                                axis=1)
-    df["OSRA_TanimotoSimilarity"] = df.apply(calc_fp_similarity,
+    df["OSRA_TanimotoSimilarity"] = df.progress_apply(calc_fp_similarity,
                                              name="OSRA",
                                              axis=1)
-    df["Imago_TanimotoSimilarity"] = df.apply(calc_fp_similarity,
+    df["Imago_TanimotoSimilarity"] = df.progress_apply(calc_fp_similarity,
                                               name="Imago",
                                               axis=1)
     # edit distance
-    df["OCMR_edit_distance"] = df.apply(edit_distance, name="OCMR", axis=1)
-    df["MolVec_edit_distance"] = df.apply(edit_distance, name="MolVec", axis=1)
-    df["OSRA_edit_distance"] = df.apply(edit_distance, name="OSRA", axis=1)
-    df["Imago_edit_distance"] = df.apply(edit_distance, name="Imago", axis=1)
+    df["OCMR_edit_distance"] = df.progress_apply(edit_distance, name="OCMR", axis=1)
+    df["MolVec_edit_distance"] = df.progress_apply(edit_distance, name="MolVec", axis=1)
+    df["OSRA_edit_distance"] = df.progress_apply(edit_distance, name="OSRA", axis=1)
+    df["Imago_edit_distance"] = df.progress_apply(edit_distance, name="Imago", axis=1)
 
     print(df.mean())
     df.to_csv(os.path.join(base_dir, "Patent_res.csv"))

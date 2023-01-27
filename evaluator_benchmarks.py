@@ -2,7 +2,10 @@ import os
 import requests
 import numpy as np
 import pandas as pd
+import rdkit.Chem.MolStandardize
+
 from rdkit import Chem
+from rdkit import DataStructs
 from multiprocessing import Pool
 from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.DataStructs import TanimotoSimilarity
@@ -54,31 +57,55 @@ def calc_matrix(fps1, fps2):
     return simi_matrix
 
 
+# def calc_fp_similarity(x):
+#     """
+#     fp_types: one or multi of mg(MorganFingerprint)、rdk(RDKFingerprint)、tt(TopologicalTorsionFingerprint)、ap(AtomPairFingerprint)
+#     """
+#     fp_types = ('mg', 'ap')
+#     is_smi = True
+#     scaffold = False
+#     ref_m, prb_m = x["GD"], x["OCMR"]
+#     if is_smi:
+#         ref_m = Chem.MolFromSmiles(ref_m)
+#         prb_m = Chem.MolFromSmiles(prb_m)
+#     if ref_m is None or prb_m is None:
+#         return 0
+#     if scaffold:
+#         ref_m = MurckoScaffold.GetScaffoldForMol(ref_m)
+#         prb_m = MurckoScaffold.GetScaffoldForMol(ref_m)
+#     simi_values = []
+#     for fp_type in fp_types:
+#         fps = calc_fingerprints([ref_m, prb_m],
+#                                 fp_type=fp_type,
+#                                 radius=2,
+#                                 bit_size=2048)
+#         simi_values.append(calc_matrix(fps, fps)[0, 1])
+#     return np.mean(simi_values)
+
 def calc_fp_similarity(x):
     """
-    fp_types: one or multi of mg(MorganFingerprint)、rdk(RDKFingerprint)、tt(TopologicalTorsionFingerprint)、ap(AtomPairFingerprint)
+    refrence from ABCNet : https://github.com/zhang-xuan1314/ABC-Net/blob/main/src/cal_acc.py
     """
-    fp_types = ('mg', 'ap')
     is_smi = True
-    scaffold = False
     ref_m, prb_m = x["GD"], x["OCMR"]
-    if is_smi:
-        ref_m = Chem.MolFromSmiles(ref_m)
-        prb_m = Chem.MolFromSmiles(prb_m)
-    if ref_m is None or prb_m is None:
-        return 0
-    if scaffold:
-        ref_m = MurckoScaffold.GetScaffoldForMol(ref_m)
-        prb_m = MurckoScaffold.GetScaffoldForMol(ref_m)
-    simi_values = []
-    for fp_type in fp_types:
-        fps = calc_fingerprints([ref_m, prb_m],
-                                fp_type=fp_type,
-                                radius=2,
-                                bit_size=2048)
-        simi_values.append(calc_matrix(fps, fps)[0, 1])
-    return np.mean(simi_values)
 
+    if is_smi:
+        ref_m_test = Chem.MolFromSmiles(ref_m)
+        prb_m_test = Chem.MolFromSmiles(prb_m)
+    if ref_m_test is None or prb_m_test is None:
+        return 0
+
+    smiles = rdkit.Chem.MolStandardize.canonicalize_tautomer_smiles(ref_m)
+    smiles_pred = rdkit.Chem.MolStandardize.canonicalize_tautomer_smiles(prb_m)
+
+    mol1 = Chem.MolFromSmiles(smiles)
+    mol2 = Chem.MolFromSmiles(smiles_pred)
+
+    morganfps1 = AllChem.GetMorganFingerprint(mol1, 3)
+    morganfps2 = AllChem.GetMorganFingerprint(mol2, 3)
+    morgan_tani = DataStructs.DiceSimilarity(morganfps1, morganfps2)
+
+    return morgan_tani
 
 def inference(file_path):
     api = 'http://localhost:1234/infer'
@@ -172,7 +199,9 @@ if __name__ == "__main__":
 
     df = pd.read_csv(csv_res_path)
     df = df.fillna(" ")
-    df["TanimotoSimilarity"] = df.apply(calc_fp_similarity, axis=1)
+    from tqdm import tqdm
+    tqdm.pandas(desc='apply')
+    df["TanimotoSimilarity"] = df.progress_apply(calc_fp_similarity, axis=1)
     print(df.groupby("Group").mean())
 
     df_UOB = df[df["Group"] == "UOB"]
