@@ -6,12 +6,12 @@
 1. Pull image from dockerhub. This image contains the tools of OCMR/MolVec/OSRA/Imago.
 
 ```bash
-**docker pull limingisafish/ocmr:v3**
+**docker pull limingisafish/ocmr:v4**
 ```
 2. Starting the docker container on local port 1234.
 
 ```bash
-docker run --rm -ti -p 1234:5632 limingisafish/ocmr:v3
+docker run --rm -ti -p 1234:5632 limingisafish/ocmr:v4
 ```
 3.  Translate molecular image to SMILES.
 ```bash
