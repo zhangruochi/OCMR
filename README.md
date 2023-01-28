@@ -43,10 +43,10 @@ python Evaluator_patent.py
 ```
 3 the result will be saved in `Patent_res.csv`.
 ```
-OCMR acc：468/520
-MolVec acc：122/520
-OSRA acc：362/520
-Imago acc：143/520
+OCMR acc：415/520
+MolVec acc：318/520
+OSRA acc：342/520
+Imago acc：120/520
 ```
 
 
