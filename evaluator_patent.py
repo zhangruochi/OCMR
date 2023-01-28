@@ -86,9 +86,7 @@ def calc_fp_similarity(x, name):
     """
     refrence from ABCNet : https://github.com/zhang-xuan1314/ABC-Net/blob/main/src/cal_acc.py
     """
-    fp_types = ('mg', 'ap')
     is_smi = True
-    scaffold = False
     ref_m, prb_m = x["GD"], x[name]
     if is_smi:
         ref_m_test = Chem.MolFromSmiles(ref_m)
@@ -127,19 +125,17 @@ def inference(file_path):
 
 
 def norm_func(smile_str):
-    # try:
-    #     smile = Chem.MolToSmiles(Chem.MolFromSmiles(smile_str),
-    #                              isomericSmiles=True,
-    #                              canonical=True).replace("\\",
-    #                                                      "").replace("/", "")
-    # except:
-    #     smile = ""
+    try:
+        smile = Chem.MolToSmiles(Chem.MolFromSmiles(smile_str),
+                                 isomericSmiles=True,
+                                 canonical=True)
+    except:
+        smile = ""
 
-    # if "." in smile:
-    #     smiles = smile.split(".")
-    #     smile = smiles[np.argmax([len(_) for _ in smiles])]
-    # return smile
-    return smile_str
+    if "." in smile:
+        smiles = smile.split(".")
+        smile = smiles[np.argmax([len(_) for _ in smiles])]
+    return smile
 
 def edit_distance(x, name):
     sm1 = norm_func(x["GD"])
@@ -224,6 +220,7 @@ if __name__ == "__main__":
             dic["Imago"].append("")
             dic["Is_Imago_true"].append(0)
 
+    df=pd.DataFrame(dic)
     df = df.fillna("c")
     from tqdm import tqdm
     tqdm.pandas(desc='apply')

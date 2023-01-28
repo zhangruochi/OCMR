@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import rdkit.Chem.MolStandardize
 
+from tqdm import tqdm
 from rdkit import Chem
 from rdkit import DataStructs
 from multiprocessing import Pool
@@ -45,18 +46,6 @@ def calc_fingerprints(mols, fp_type="mg", radius=2, bit_size=2048):
 
     return fps
 
-
-def calc_matrix(fps1, fps2):
-    row_num = len(fps1)
-    col_num = len(fps2)
-    simi_matrix = np.eye(col_num, row_num)
-
-    for i in range(col_num):
-        for j in range(row_num):
-            simi_matrix[i, j] = TanimotoSimilarity(fps2[i], fps1[j])
-    return simi_matrix
-
-
 # def calc_fp_similarity(x):
 #     """
 #     fp_types: one or multi of mg(MorganFingerprint)、rdk(RDKFingerprint)、tt(TopologicalTorsionFingerprint)、ap(AtomPairFingerprint)
@@ -82,29 +71,39 @@ def calc_matrix(fps1, fps2):
 #         simi_values.append(calc_matrix(fps, fps)[0, 1])
 #     return np.mean(simi_values)
 
-def calc_fp_similarity(x):
+def calc_matrix(fps1, fps2):
+    row_num = len(fps1)
+    col_num = len(fps2)
+    simi_matrix = np.eye(col_num, row_num)
+
+    for i in range(col_num):
+        for j in range(row_num):
+            simi_matrix[i, j] = TanimotoSimilarity(fps2[i], fps1[j])
+    return simi_matrix
+
+def calc_fp_similarity(x, name):
     """
     refrence from ABCNet : https://github.com/zhang-xuan1314/ABC-Net/blob/main/src/cal_acc.py
     """
     is_smi = True
-    ref_m, prb_m = x["GD"], x["OCMR"]
-
+    ref_m, prb_m = x["GD"], x[name]
     if is_smi:
         ref_m_test = Chem.MolFromSmiles(ref_m)
         prb_m_test = Chem.MolFromSmiles(prb_m)
     if ref_m_test is None or prb_m_test is None:
         return 0
 
-    smiles = rdkit.Chem.MolStandardize.canonicalize_tautomer_smiles(ref_m)
-    smiles_pred = rdkit.Chem.MolStandardize.canonicalize_tautomer_smiles(prb_m)
-
+    try:
+        smiles = rdkit.Chem.MolStandardize.canonicalize_tautomer_smiles(ref_m)
+        smiles_pred = rdkit.Chem.MolStandardize.canonicalize_tautomer_smiles(prb_m)
+    except:
+        return 0
     mol1 = Chem.MolFromSmiles(smiles)
     mol2 = Chem.MolFromSmiles(smiles_pred)
 
     morganfps1 = AllChem.GetMorganFingerprint(mol1, 3)
     morganfps2 = AllChem.GetMorganFingerprint(mol2, 3)
     morgan_tani = DataStructs.DiceSimilarity(morganfps1, morganfps2)
-
     return morgan_tani
 
 def inference(file_path):
@@ -115,9 +114,9 @@ def inference(file_path):
                             'file_upload': open(file_path, "rb")
                         },
                         data={
-                            "molvec": False,
-                            "osra": False,
-                            "imago": False,
+                            "molvec": True,
+                            "osra": True,
+                            "imago": True,
                             "ocmr": True,
                             "ocmr_det": True
                         }).json()
@@ -128,8 +127,7 @@ def norm_func(smile_str):
     try:
         smile = Chem.MolToSmiles(Chem.MolFromSmiles(smile_str),
                                  isomericSmiles=True,
-                                 canonical=True).replace("\\",
-                                                         "").replace("/", "")
+                                 canonical=True)
     except:
         smile = ""
 
@@ -141,47 +139,58 @@ def norm_func(smile_str):
 def eva_data(df_map):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     csv_res_path = os.path.join(base_dir, "public_res.csv")
-    flag_file = os.path.join(base_dir, "flag.txt")
-
-    with open(flag_file, "r") as f:
-        flag_name = f.readlines()
-    flag_name = [i.strip() for i in flag_name]
-
-    for item in df_map.iterrows():
+    global exist_list
+    for item in tqdm(df_map.iterrows()):
         single_row = []
         item = dict(item[1])
         set_name = item["Group"]
-        if item["Key"] in flag_name:
-            continue
+
+
         if set_name in ["CLEF", "JPO", "UOB", "USPTO"]:
             GD_smiles = item["Smiles"]
             img_path = os.path.join(base_dir, "Data", "public_data", set_name,
                                     "{}.png".format(item["Key"]))
+            if item["Key"] in exist_list:
+                print("跳过，存在{}".format(item["Key"]))
+                continue
             res = inference(img_path)
-            is_true = (norm_func(GD_smiles) == norm_func(res["ocmr"]))
+            ocmr_is_true = (norm_func(GD_smiles) == norm_func(res["ocmr"]))
+            # ------ OCMR
             single_row.append(item["Key"])
             single_row.append(os.path.basename(img_path))
             single_row.append(GD_smiles)
             single_row.append(res["ocmr"])
             single_row.append(set_name)
-            single_row.append(is_true)
+            single_row.append(ocmr_is_true)
+            # ------ OSRA
+            osra_is_true = (norm_func(GD_smiles) == norm_func(res["osra"]))
+            single_row.append(res["osra"])
+            single_row.append(osra_is_true)
+            # ------ MolVec
+            molvec_is_true = (norm_func(GD_smiles) == norm_func(res["molvec"]))
+            single_row.append(res["molvec"])
+            single_row.append(molvec_is_true)
+            # ------ imago
+            imago_is_true = (norm_func(GD_smiles) == norm_func(res["imago"]))
+            single_row.append(res["imago"])
+            single_row.append(imago_is_true)
+
             single_row = [single_row]
+
         else:
             continue
         df_row = pd.DataFrame(single_row)
+
         if not os.path.exists(csv_res_path):
             df_row.to_csv(csv_res_path,
                           header=[
                               "key", "Img_path", "GD", "OCMR", "Group",
-                              "Is_OCMR_true"
+                              "Is_OCMR_true","OSRA", "Is_OSRA_true", "MolVec", "Is_MolVec_true", "Imago", "Is_Imago_true"
                           ],
                           index=False,
                           mode='a')
         else:
             df_row.to_csv(csv_res_path, header=False, index=False, mode='a')
-        with open(flag_file, "a") as f:
-            f.writelines(str(item["Key"]) + "\n")
-
 
 if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -190,18 +199,48 @@ if __name__ == "__main__":
         smiles_map = os.path.join(base_dir, "Data", "public_data",
                                   "refence_smiles.csv")
         df_map = pd.read_csv(smiles_map)
+        exist_list = []
         df_map = df_map[df_map["Group"].isin(["CLEF", "JPO", "UOB", "USPTO"])]
         df_list = [
             df_map[:3000], df_map[3000:6000], df_map[6000:9000], df_map[9000:]
+            # df_map[:6000], df_map[6000:]
         ]
         po = Pool(4)
         po.map(eva_data, df_list)
+        # eva_data(df_map)
+    else:
+        smiles_map = os.path.join(base_dir, "Data", "public_data",
+                                  "refence_smiles.csv")
+        df_map = pd.read_csv(smiles_map)
+        exist_list = pd.read_csv(csv_res_path).key.to_list()
+        df_map = df_map[df_map["Group"].isin(["CLEF", "JPO", "UOB", "USPTO"])]
+        df_list = [
+            df_map[:3000], df_map[3000:6000], df_map[6000:9000], df_map[9000:]
+            # df_map[:6000], df_map[6000:]
+        ]
+        po = Pool(4)
+        po.map(eva_data, df_list)
+        # eva_data(df_map)
+
 
     df = pd.read_csv(csv_res_path)
     df = df.fillna(" ")
-    from tqdm import tqdm
+
     tqdm.pandas(desc='apply')
-    df["TanimotoSimilarity"] = df.progress_apply(calc_fp_similarity, axis=1)
+    # similarity
+    df["OCMR_TanimotoSimilarity"] = df.progress_apply(calc_fp_similarity,
+                                             name="OCMR",
+                                             axis=1)
+    df["MolVec_TanimotoSimilarity"] = df.progress_apply(calc_fp_similarity,
+                                               name="MolVec",
+                                               axis=1)
+    df["OSRA_TanimotoSimilarity"] = df.progress_apply(calc_fp_similarity,
+                                             name="OSRA",
+                                             axis=1)
+    df["Imago_TanimotoSimilarity"] = df.progress_apply(calc_fp_similarity,
+                                              name="Imago",
+                                              axis=1)
+
     print(df.groupby("Group").mean())
 
     df_UOB = df[df["Group"] == "UOB"]
